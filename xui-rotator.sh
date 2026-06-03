@@ -20,6 +20,7 @@ CHANGE_SHORTIDS=false
 CHANGE_WS=false
 CHANGE_TROJAN=false
 CHANGE_XHTTP=false
+CHANGE_HYSTERIA=false
 CHANGE_SNI=false
 
 if [[ $# -eq 0 ]]; then
@@ -27,6 +28,7 @@ if [[ $# -eq 0 ]]; then
   CHANGE_WS=true
   CHANGE_TROJAN=true
   CHANGE_XHTTP=true
+  CHANGE_HYSTERIA=true
   CHANGE_SNI=true
 fi
 
@@ -43,6 +45,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --xhttp)
       CHANGE_XHTTP=true
+      ;;
+    --hysteria)
+      CHANGE_HYSTERIA=true
       ;;
     --sni)
       CHANGE_SNI=true
@@ -145,6 +150,11 @@ if $CHANGE_TROJAN; then
   new_port=$(generate_unique_port)
   new_path="/${new_port}/$(generate_unique_string '10')"
   sqlite3 "$XUIDB" "UPDATE inbounds SET stream_settings = json_set(stream_settings,'$.grpcSettings.serviceName','$new_path'), port = ${new_port}, tag = 'in-${new_port}-tcp' WHERE remark LIKE '%Trojan%';"
+fi
+
+if $CHANGE_HYSTERIA; then
+  new_finalmask=$(openssl rand -hex 8)
+  sqlite3 "$XUIDB" "UPDATE inbounds SET stream_settings = json_set(stream_settings,'$.finalmask.udp[0].settings.password','$new_finalmask') WHERE remark LIKE '%Hysteria2%';"
 fi
 
 if $CHANGE_SNI; then
