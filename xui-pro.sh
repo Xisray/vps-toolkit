@@ -359,8 +359,6 @@ install_3xui() {
 
 setup_3xui() {
   x-ui stop
-  # Todo: check work without it
-  # /usr/local/x-ui/x-ui setting -username "asdfasdf" -password "asdfasdf" -port "2096" -webBasePath "asdfasdf"
   /usr/local/x-ui/x-ui migrate
 
   emoji_flag=$(LC_ALL=en_US.UTF-8 curl -s https://ipwho.is/ | jq -r '.flag.emoji')
@@ -697,8 +695,11 @@ CRONS=(
   "0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH"
   "0 4 * * * /usr/bin/x-ui restart > /dev/null 2>&1; /usr/sbin/nginx -s reload > /dev/null 2>&1"
   "0 */8 * * * $INSTALL_PATH --shortids >/dev/null 2>&1"
-  "0 3 * * 0 $INSTALL_PATH --sni >/dev/null 2>&1"
 )
+
+if [[ -n "$reality_mask" ]]; then
+  CRONS+=("0 3 * * 0 $INSTALL_PATH --sni >/dev/null 2>&1")
+fi
 
 current_cron=$(crontab -l 2>/dev/null || true)
 
