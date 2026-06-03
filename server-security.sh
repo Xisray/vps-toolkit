@@ -237,7 +237,7 @@ else
   systemctl restart ssh
 fi
 
-CRON_JOB='0 4 * * 0 /usr/sbin/reboot'
+CRON_JOB='37 4 * * 0 /usr/sbin/reboot'
 (
     crontab -l 2>/dev/null | grep -Fv "$CRON_JOB"
     echo "$CRON_JOB"
