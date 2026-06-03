@@ -691,22 +691,17 @@ REPO_URL="https://raw.githubusercontent.com/Xisray/vps-toolkit/main/xui-rotator.
 curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
 
-CRONS=(
-  "0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH && $INSTALL_PATH --shortids --ws --trojan --xhttp --hysteria >/dev/null 2>&1"
-)
+ARGS="--shortids --ws --trojan --xhttp --hysteria"
 
 if [[ -n "$reality_mask" ]]; then
-  CRONS+=("0 3 * * 0 $INSTALL_PATH --sni >/dev/null 2>&1")
+  ARGS="$ARGS --sni"
 fi
 
-current_cron=$(crontab -l 2>/dev/null || true)
-
-for job in "${CRONS[@]}"; do
-  current_cron=$(echo "$current_cron" | grep -Fv "$job" || true)
-  current_cron+=$'\n'"$job"
-done
-
-echo "$current_cron" | sed '/^$/d' | crontab -
+CRON_JOB="0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH && $INSTALL_PATH $ARGS >/dev/null 2>&1"
+(
+    crontab -l 2>/dev/null | grep -Fv "$CRON_JOB"
+    echo "$CRON_JOB"
+) | crontab -
 
 ufw allow "$(get_ssh_config 'Port')/tcp" >/dev/null
 ufw allow ${http_port}/tcp >/dev/null
