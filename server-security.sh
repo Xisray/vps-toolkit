@@ -20,6 +20,9 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+declare -A __used_ports
+declare -A __used_strings
+
 function read_or_default() {
   local var_name="$1"
   local prompt="$2"
@@ -63,7 +66,7 @@ function gen_random_string() {
   local unique="${2:-false}"
   local candidate
   while true; do
-    candidate=$(head -c 4096 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$length")
+    candidate=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c "$length")
     if [[ "$unique" != "true" ]]; then
       echo "$candidate"
       return 0
@@ -81,8 +84,7 @@ function is_valid_port() {
 }
 
 function is_occupied_port() {
-	local port=$1
-    (echo > /dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1
+	ss -lnt "( sport = :$1 )" | grep -q ":$1"
 }
 
 function get_valid_port() {
@@ -155,20 +157,20 @@ function add_user_pubkey() {
     return 1
   fi
 
-  mkdir -p /home/$username/.ssh
+  mkdir -p "/home/$username/.ssh"
   local ssh_key
   read_non_empty ssh_key "Enter pubkey"
 
-  echo "$ssh_key" >> /home/$username/.ssh/authorized_keys
+  echo "$ssh_key" >> "/home/$username/.ssh/authorized_keys"
 
-  chmod 700 /home/$username/.ssh
-  chmod 600 /home/$username/.ssh/authorized_keys
+  chmod 700 "/home/$username/.ssh"
+  chmod 600 "/home/$username/.ssh/authorized_keys"
 
-  chown -R $username:$username /home/$username/.ssh
+  chown -R "$username:$username" "/home/$username/.ssh"
 }
 
 function create_user() {
-  local default_user=$(gen_random_string 10)
+  local default_user
   while true; do
     default_user=$(gen_random_string 10)
     ! id "$default_user" &>/dev/null && break
@@ -196,7 +198,7 @@ function create_user() {
   if useradd -m -s /bin/bash -G "$admin_group" "$username"; then
     info "User '$username' успешно создан." >&2
     info "Enter password for user '$username'" >&2
-    passwd $username
+    passwd "$username"
   else
     error "Что-то пошло не так при создании пользователя '$username'"
     return 1
@@ -215,7 +217,7 @@ function change_ssh_port() {
   set_ssh_config "Port" "$new_port"
   if command -v ufw >/dev/null; then
     ufw allow "$new_port"/tcp >/dev/null
-    ufw delete allow "$old_port"/tcp >/dev/null
+    ufw --force delete allow "$old_port"/tcp >/dev/null
   fi
 }
 
@@ -228,3 +230,15 @@ set_ssh_config "PermitRootLogin" "no"
 change_ssh_port
 create_user
 ufw --force enable
+
+if systemctl list-unit-files | grep -q '^sshd\.service'; then
+  systemctl restart sshd
+else
+  systemctl restart ssh
+fi
+
+CRON_JOB='0 4 * * 0 /usr/sbin/reboot'
+(
+    crontab -l 2>/dev/null | grep -Fv "$CRON_JOB"
+    echo "$CRON_JOB"
+) | crontab -
