@@ -1,0 +1,50 @@
+# VPS Toolkit
+
+A collection of scripts for quickly securing and deploying a production-ready VPS with **SSH hardening**, **3X-UI**, **Xray**, **Reality**, **XHTTP**, **WebSocket**, **Hysteria2**, and **Nginx**.
+
+---
+ 
+## 📦 Scripts
+ 
+### 🔒 `server-security.sh`
+ 
+Hardens your VPS with a single command — configures firewall rules, SSH settings, and core system protections.
+ 
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/server-security.sh)
+```
+ 
+---
+ 
+### ⚡ `xui-pro.sh`
+ 
+Installs and configures X-UI Pro panel with automated SSL certificate issuance.
+ 
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/xui-pro.sh)
+```
+ 
+---
+ 
+## ⚠️ Requirements
+ 
+- OS: **Ubuntu 22.04 / 24.04** or **Debian 11 / 12**
+- Access: **root** or `sudo`
+- Ports **80** and **443** must be open and free before running
+---
+ 
+## 🚀 Quick Start
+ 
+```bash
+# 1. Secure the server first
+bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/server-security.sh)
+ 
+# 2. Then deploy X-UI Pro
+bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/xui-pro.sh)
+```
+ 
+---
+ 
+<div align="center">
+  <sub>Made with ☕ by <a href="https://github.com/Xisray">Xisray</a></sub>
+</div>
