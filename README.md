@@ -1,6 +1,20 @@
-# VPS Toolkit
-
-A collection of scripts for quickly securing and deploying a production-ready VPS with **SSH hardening**, **3X-UI**, **Xray**, **Reality**, **XHTTP**, **WebSocket**, **Hysteria2**, and **Nginx**.
+div align="center">
+```
+██╗   ██╗██████╗ ███████╗    ████████╗ ██████╗  ██████╗ ██╗     ██╗  ██╗██╗████████╗
+██║   ██║██╔══██╗██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██║ ██╔╝██║╚══██╔══╝
+██║   ██║██████╔╝███████╗       ██║   ██║   ██║██║   ██║██║     █████╔╝ ██║   ██║   
+╚██╗ ██╔╝██╔═══╝ ╚════██║       ██║   ██║   ██║██║   ██║██║     ██╔═██╗ ██║   ██║   
+ ╚████╔╝ ██║     ███████║       ██║   ╚██████╔╝╚██████╔╝███████╗██║  ██╗██║   ██║   
+  ╚═══╝  ╚═╝     ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝  
+```
+ 
+**A collection of hardening & deployment scripts for VPS servers**
+ 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Shell](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnubash&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
+ 
+</div>
 
 ---
  
@@ -19,6 +33,8 @@ bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/m
 ### ⚡ `xui-pro.sh`
  
 Installs and configures X-UI Pro panel with automated SSL certificate issuance.
+
+> Based on the original script by [**@mozaroc**](https://github.com/mozaroc) — thanks for the groundwork! 🙏
  
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/xui-pro.sh)
