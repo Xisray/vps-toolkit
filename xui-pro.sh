@@ -684,9 +684,9 @@ fi
 install_3xui
 setup_3xui
 
-INSTALL_PATH="/usr/local/bin/reality-update"
+INSTALL_PATH="/usr/local/bin/xui-rotator"
 TMP_PATH="${INSTALL_PATH}.new"
-REPO_URL="https://raw.githubusercontent.com/Xisray/vps-toolkit/main/reality-update.sh"
+REPO_URL="https://raw.githubusercontent.com/Xisray/vps-toolkit/main/xui-rotator.sh"
 
 curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
@@ -694,7 +694,7 @@ chmod +x "$INSTALL_PATH"
 CRONS=(
   "0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH"
   "0 4 * * * /usr/bin/x-ui restart > /dev/null 2>&1; /usr/sbin/nginx -s reload > /dev/null 2>&1"
-  "0 */8 * * * $INSTALL_PATH --shortids >/dev/null 2>&1"
+  "0 */8 * * * $INSTALL_PATH --shortids --ws --trojan --xhttp >/dev/null 2>&1"
 )
 
 if [[ -n "$reality_mask" ]]; then
