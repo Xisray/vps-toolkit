@@ -692,9 +692,7 @@ curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
 
 CRONS=(
-  "0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH"
-  "0 4 * * * /usr/bin/x-ui restart > /dev/null 2>&1; /usr/sbin/nginx -s reload > /dev/null 2>&1"
-  "0 */8 * * * $INSTALL_PATH --shortids --ws --trojan --xhttp --hysteria >/dev/null 2>&1"
+  "0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH && $INSTALL_PATH --shortids --ws --trojan --xhttp --hysteria >/dev/null 2>&1"
 )
 
 if [[ -n "$reality_mask" ]]; then
