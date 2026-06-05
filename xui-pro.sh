@@ -604,9 +604,9 @@ server {
     grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     grpc_set_header X-Forwarded-Proto \$scheme;
 
-    client_body_timeout 5m;
-    grpc_read_timeout 315;
-    grpc_send_timeout 5m;
+    client_body_timeout 1h;
+    grpc_read_timeout 1h;
+    grpc_send_timeout 1h;
 
     grpc_pass unix:/dev/shm/xrxh.socket;
   }
@@ -614,8 +614,8 @@ server {
   location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)\$ {
     if (\$hack = 1) {return 404;}
     client_max_body_size 0;
-    client_body_timeout 5m;
-    proxy_read_timeout 315;
+    client_body_timeout 1h;
+    proxy_read_timeout 1h;
 
     proxy_socket_keepalive on;
     proxy_http_version 1.1;
