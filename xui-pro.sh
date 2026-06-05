@@ -394,13 +394,15 @@ setup_3xui() {
 DELETE FROM client_traffics;
 DELETE FROM inbounds;
 DELETE FROM settings
-WHERE "key" IN ('subPort','subPath','subURI','subClashPath','subClashURI','webPort','webCertFile','webKeyFile','webBasePath','subCertFile','subKeyFile','subJsonEnable','subJsonPath','subJsonURI','subEnableRouting','subRoutingRules');
+WHERE "key" IN ('subPort','subPath','subURI','subClashEnable','subClashPath','subClashURI','webPort','webCertFile','webKeyFile','webBasePath','subCertFile','subKeyFile','subJsonEnable','subJsonPath','subJsonURI','subEnableRouting','subRoutingRules','subUpdates');
+INSERT INTO settings(key,value) VALUES("subUpdates","8");
 INSERT INTO settings(key,value) VALUES("subPort","$sub_port");
 INSERT INTO settings(key,value) VALUES("subPath","/$sub_path/");
 INSERT INTO settings(key,value) VALUES("subURI","https://$domain/$sub_path/");
 INSERT INTO settings(key,value) VALUES("subJsonEnable","true");
 INSERT INTO settings(key,value) VALUES("subJsonPath","/$json_path/");
 INSERT INTO settings(key,value) VALUES("subJsonURI","https://$domain/$json_path/");
+INSERT INTO settings(key,value) VALUES("subClashEnable","true");
 INSERT INTO settings(key,value) VALUES("subClashPath","/$clash_path/");
 INSERT INTO settings(key,value) VALUES("subClashURI","https://$domain/$clash_path/");
 INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'$emoji_flag Reality',1,0,'',${reality_port},'vless','{"clients":[],"decryption":"none","encryption":"none","testseed":[900,500,900,256]}','{"network":"tcp","tcpSettings":{"acceptProxyProtocol":true,"header":{"type":"none"}},"security":"reality","realitySettings":{"show":false,"xver":0,"target":"${reality_target}","serverNames":["${reality_sni}"],"privateKey":"${private_key}","minClientVer":"","maxClientVer":"","maxTimediff":0,"shortIds":["${short[0]}","${short[1]}","${short[2]}","${short[3]}","${short[4]}","${short[5]}","${short[6]}","${short[7]}"],"mldsa65Seed":"","settings":{"publicKey":"${public_key}","fingerprint":"chrome","serverName":"","spiderX":"/","mldsa65Verify":""}},"externalProxy":[{"forceTls":"same","dest":"${reality_proxy_domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${reality_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
