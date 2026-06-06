@@ -131,7 +131,7 @@ fi
 
 if $CHANGE_XHTTP; then
   current_path=$(sqlite3 "$XUIDB" "SELECT json_extract(stream_settings,'$.xhttpSettings.path') FROM inbounds WHERE remark LIKE '%XHTTP%' LIMIT 1;")
-  new_path="/$(generate_unique_string '10')"
+  new_path="/$(generate_unique_string '16')"
   if [ -n "$current_path" ] && [ "$current_path" != "null" ]; then
     sed -i "s|location ${current_path} |location ${new_path} |g" $NGINX_CONF_DIR/* 2>/dev/null
   fi
@@ -141,14 +141,14 @@ fi
 if $CHANGE_WS; then
   current_port=$(sqlite3 "$XUIDB" "SELECT port FROM inbounds WHERE remark LIKE '%WebSocket%' LIMIT 1;")
   new_port=$(generate_unique_port)
-  new_path="/${new_port}/$(generate_unique_string '10')"
+  new_path="/${new_port}/$(generate_unique_string '16')"
   sqlite3 "$XUIDB" "UPDATE inbounds SET stream_settings = json_set(stream_settings,'$.wsSettings.path','$new_path'), port = ${new_port}, tag = 'in-${new_port}-tcp' WHERE remark LIKE '%WebSocket%';"
 fi
 
 if $CHANGE_TROJAN; then
   current_port=$(sqlite3 "$XUIDB" "SELECT port FROM inbounds WHERE remark LIKE '%Trojan%' LIMIT 1;")
   new_port=$(generate_unique_port)
-  new_path="/${new_port}/$(generate_unique_string '10')"
+  new_path="/${new_port}/$(generate_unique_string '16')"
   sqlite3 "$XUIDB" "UPDATE inbounds SET stream_settings = json_set(stream_settings,'$.grpcSettings.serviceName','$new_path'), port = ${new_port}, tag = 'in-${new_port}-tcp' WHERE remark LIKE '%Trojan%';"
 fi
 
