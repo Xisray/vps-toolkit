@@ -1,11 +1,6 @@
 #!/bin/bash
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+RED='\033[0;31m';GREEN='\033[0;32m';BLUE='\033[0;34m';YELLOW='\033[0;33m';CYAN='\033[0;36m';NC='\033[0m'
 
 function error() { echo -e "${RED}[ERROR] $* ${NC}" >&2; }
 function info()  { echo -e "${CYAN}[INFO] $* ${NC}"; }
@@ -18,9 +13,14 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 DEFAULT=false
+MASTER=true
+SLAVE=true
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --default|-d) DEFAULT=true; shift 1;;
+    --master|-m) SLAVE=false; shift 1;;
+    --slave|-s) MASTER=false; shift 1;;
+    --www|-w) WWW="$2"; shift 2;;
     *) shift 1;;
   esac
 done
@@ -84,7 +84,7 @@ read_port_or_default() {
       continue
     fi
 
-    if [[ -n ${USED_PORTS[$port]} ]]; then
+    if [[ "${USED_PORTS[$port]}" -eq 1 ]]; then
       continue
     fi
 
@@ -127,6 +127,10 @@ read_value() {
 }
 
 read_reality_mask() {
+  if [ -n "$WWW" ]; then
+    echo ""
+    return 0
+  fi
   local PRESET_DOMAINS=(
     "www.sony.com"
     "www.oracle.com"
@@ -190,7 +194,7 @@ read_reality_mask() {
   esac
 }
 
-function get_ssh_config() {
+get_ssh_config() {
   local key="${1,,}"
   sshd -T | awk -v key="$key" '$1 == key {print $2}'
 }
@@ -223,7 +227,7 @@ ssl_cert_issue() {
 
   if [[ $# -gt 0 ]]; then
     for sci_domain in "$@"; do
-      if [[ "$sci_domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+      if [[ "$sci_domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
         domain_list+=("$sci_domain")
       else
         error "Invalid domain: $sci_domain"
@@ -286,7 +290,7 @@ ssl_cert_issue() {
 
     if [[ $success -eq 0 ]]; then
       error "Issuing certificate failed after $max_attempts attempts."
-      rm -rf "~/.acme.sh/${primary_domain}"
+      rm -rf ~/.acme.sh/"${primary_domain}"
       exit 1
     fi
   fi
@@ -369,7 +373,36 @@ setup_3xui() {
   x-ui stop
   /usr/local/x-ui/x-ui migrate
 
+  sqlite3 $XUIDB << EOF
+DELETE FROM client_traffics;
+DELETE FROM inbounds;
+DELETE FROM settings
+WHERE "key" IN ('subPort','subPath','subURI','subClashEnable','subClashPath','subClashURI','webPort','webCertFile','webKeyFile','webBasePath','subCertFile','subKeyFile','subJsonEnable','subJsonPath','subJsonURI','subEnableRouting','subRoutingRules','subUpdates','xrayTemplateConfig');
+EOF
+
+
+if $MASTER; then
+  sqlite3 $XUIDB << EOF
+INSERT INTO settings(key,value) VALUES("subUpdates","8");
+INSERT INTO settings(key,value) VALUES("subPort","$sub_port");
+INSERT INTO settings(key,value) VALUES("subPath","/$sub_path/");
+INSERT INTO settings(key,value) VALUES("subURI","https://$domain/$sub_path/");
+INSERT INTO settings(key,value) VALUES("subJsonEnable","true");
+INSERT INTO settings(key,value) VALUES("subJsonPath","/$json_path/");
+INSERT INTO settings(key,value) VALUES("subJsonURI","https://$domain/$json_path/");
+INSERT INTO settings(key,value) VALUES("subClashEnable","true");
+INSERT INTO settings(key,value) VALUES("subClashPath","/$clash_path/");
+INSERT INTO settings(key,value) VALUES("subClashURI","https://$domain/$clash_path/");
+EOF
+fi
+
+if $SLAVE; then
   emoji_flag=$(LC_ALL=en_US.UTF-8 curl -s https://ipwho.is/ | jq -r '.flag.emoji')
+  placeholder=$'\001'
+
+  inbound_prefix="${inbound_prefix//\\\{flag\}/$placeholder}"
+  inbound_prefix="${inbound_prefix//\{flag\}/$emoji_flag}"
+  inbound_prefix="${inbound_prefix//$placeholder/\\{flag\}}"
 
   output=$($XRAY_BIN x25519)
   private_key=$(echo "$output" | awk '/^PrivateKey:/ {print $2}')
@@ -398,30 +431,222 @@ setup_3xui() {
     reality_proxy_domain="${reality_domain}"
   fi
 
-  sqlite3 $XUIDB << EOF
-DELETE FROM client_traffics;
-DELETE FROM inbounds;
-DELETE FROM settings
-WHERE "key" IN ('subPort','subPath','subURI','subClashEnable','subClashPath','subClashURI','webPort','webCertFile','webKeyFile','webBasePath','subCertFile','subKeyFile','subJsonEnable','subJsonPath','subJsonURI','subEnableRouting','subRoutingRules','subUpdates');
-INSERT INTO settings(key,value) VALUES("subUpdates","8");
-INSERT INTO settings(key,value) VALUES("subPort","$sub_port");
-INSERT INTO settings(key,value) VALUES("subPath","/$sub_path/");
-INSERT INTO settings(key,value) VALUES("subURI","https://$domain/$sub_path/");
-INSERT INTO settings(key,value) VALUES("subJsonEnable","true");
-INSERT INTO settings(key,value) VALUES("subJsonPath","/$json_path/");
-INSERT INTO settings(key,value) VALUES("subJsonURI","https://$domain/$json_path/");
-INSERT INTO settings(key,value) VALUES("subClashEnable","true");
-INSERT INTO settings(key,value) VALUES("subClashPath","/$clash_path/");
-INSERT INTO settings(key,value) VALUES("subClashURI","https://$domain/$clash_path/");
-INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'$emoji_flag Reality',1,0,'',${reality_port},'vless','{"clients":[],"decryption":"none","encryption":"none","testseed":[900,500,900,256]}','{"network":"tcp","tcpSettings":{"acceptProxyProtocol":true,"header":{"type":"none"}},"security":"reality","realitySettings":{"show":false,"xver":0,"target":"${reality_target}","serverNames":["${reality_sni}"],"privateKey":"${private_key}","minClientVer":"","maxClientVer":"","maxTimediff":0,"shortIds":["${short[0]}","${short[1]}","${short[2]}","${short[3]}","${short[4]}","${short[5]}","${short[6]}","${short[7]}"],"mldsa65Seed":"","settings":{"publicKey":"${public_key}","fingerprint":"firefox","serverName":"","spiderX":"/","mldsa65Verify":""}},"externalProxy":[{"forceTls":"same","dest":"${reality_proxy_domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${reality_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
-INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${emoji_flag} XHTTP',1,0,'/dev/shm/xrxh.socket,0666',0,'vless','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"xhttp","xhttpSettings":{"path":"/${xhttp_path}","host":"","mode":"packet-up","xPaddingBytes":"100-1000","xPaddingObfsMode":false,"xPaddingKey":"","xPaddingHeader":"","xPaddingPlacement":"","xPaddingMethod":"","sessionPlacement":"","sessionKey":"","seqPlacement":"","seqKey":"","uplinkDataPlacement":"","uplinkDataKey":"","scMaxEachPostBytes":"1000000","noSSEHeader":false,"scMaxBufferedPosts":30,"scStreamUpServerSecs":"20-80","serverMaxHeaderBytes":0,"uplinkHTTPMethod":"","headers":{},"scMinPostsIntervalMs":"30","uplinkChunkSize":0,"noGRPCHeader":false,"enableXmux":false},"security":"none","externalProxy":[{"forceTls":"tls","dest":"$domain","port":${https_port},"remark":"","sni":"","alpn":[]}],"sockopt":{"acceptProxyProtocol":false,"tcpFastOpen":true,"mark":0,"tproxy":"off","tcpMptcp":true,"penetrate":false,"domainStrategy":"AsIs","tcpMaxSeg":1440,"dialerProxy":"","tcpKeepAliveInterval":45,"tcpKeepAliveIdle":45,"tcpUserTimeout":10000,"tcpcongestion":"bbr","V6Only":false,"tcpWindowClamp":600,"interface":"","trustedXForwardedFor":[],"addressPortStrategy":"none","customSockopt":[]}}','in-0-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"]}');
-INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'$emoji_flag WebSocket',1,0,'',${ws_port},'vless','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"ws","wsSettings":{"acceptProxyProtocol":false,"path":"/${ws_port}/${ws_path}","host":"","headers":{},"heartbeatPeriod":0},"security":"none","externalProxy":[{"forceTls":"tls","dest":"${domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${ws_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
-INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'$emoji_flag Trojan',1,0,'',${trojan_port},'trojan','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"grpc","grpcSettings":{"serviceName":"/${trojan_port}/${trojan_path}","authority":"${domain}","multiMode":false},"security":"none","externalProxy":[{"forceTls":"tls","dest":"${domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${trojan_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
-INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'$emoji_flag Hysteria2',1,0,'',${https_port},'hysteria','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"hysteria","hysteriaSettings":{"version":2,"udpIdleTimeout":60},"security":"tls","tlsSettings":{"serverName":"${domain}","minVersion":"1.2","maxVersion":"1.3","cipherSuites":"","rejectUnknownSni":false,"disableSystemRoot":false,"enableSessionResumption":false,"certificates":[{"certificateFile":"${cert_path}","keyFile":"${cert_key_path}","oneTimeLoading":false,"usage":"encipherment","buildChain":false}],"alpn":["h3"],"echServerKeys":"${ech_server}","settings":{"fingerprint":"firefox","echConfigList":"${ech_config}","pinnedPeerCertSha256":[]}},"finalmask":{"udp":[{"type":"salamander","settings":{"password":"${finalmask}"}}]}}','in-${https_port}-udp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
+  config=$(curl -fsSL https://raw.githubusercontent.com/MHSanaei/3x-ui/refs/heads/main/internal/web/service/config.json | jq -c '.routing.rules |= map(if has("ip") and .outboundTag == "blocked" then .ip += ["ext:geoip_RU.dat:ru"] else . end) | .routing.rules += [{"type": "field", "outboundTag": "blocked", "domain": ["geosite:category-ads-all", "ext:geosite_RU.dat:category-ads-all", "ext:geosite_RU.dat:ru-available-only-inside", "regexp:.*\\.su$", "regexp:.*\\.xn--p1ai$", "regexp:.*\\.ru$", "regexp:.*yandex.*$", "regexp:.*\\.reddit.com$", "regexp:.*\\.redditstatic.com$", "regexp:.*\\.redditmedia.com$"]}]')
+  config=${config//\'/\'\'}
 
+  sqlite3 $XUIDB << EOF
+INSERT INTO settings (key, value) VALUES ('xrayTemplateConfig','$config');
+INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${inbound_prefix} Reality',1,0,'',${reality_port},'vless','{"clients":[],"decryption":"none","encryption":"none","testseed":[900,500,900,256]}','{"network":"tcp","tcpSettings":{"acceptProxyProtocol":true,"header":{"type":"none"}},"security":"reality","realitySettings":{"show":false,"xver":0,"target":"${reality_target}","serverNames":["${reality_sni}"],"privateKey":"${private_key}","minClientVer":"","maxClientVer":"","maxTimediff":0,"shortIds":["${short[0]}","${short[1]}","${short[2]}","${short[3]}","${short[4]}","${short[5]}","${short[6]}","${short[7]}"],"mldsa65Seed":"","settings":{"publicKey":"${public_key}","fingerprint":"firefox","serverName":"","spiderX":"/","mldsa65Verify":""}},"externalProxy":[{"forceTls":"same","dest":"${reality_proxy_domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${reality_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
+INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${inbound_prefix} XHTTP',1,0,'/dev/shm/xrxh.socket,0666',0,'vless','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"xhttp","xhttpSettings":{"path":"/${xhttp_path}","host":"","mode":"packet-up","xPaddingBytes":"100-1000","xPaddingObfsMode":false,"xPaddingKey":"","xPaddingHeader":"","xPaddingPlacement":"","xPaddingMethod":"","sessionPlacement":"","sessionKey":"","seqPlacement":"","seqKey":"","uplinkDataPlacement":"","uplinkDataKey":"","scMaxEachPostBytes":"1000000","noSSEHeader":false,"scMaxBufferedPosts":30,"scStreamUpServerSecs":"20-80","serverMaxHeaderBytes":0,"uplinkHTTPMethod":"","headers":{},"scMinPostsIntervalMs":"30","uplinkChunkSize":0,"noGRPCHeader":false,"enableXmux":false},"security":"none","externalProxy":[{"forceTls":"tls","dest":"$domain","port":${https_port},"remark":"","sni":"","alpn":[]}],"sockopt":{"acceptProxyProtocol":false,"tcpFastOpen":true,"mark":0,"tproxy":"off","tcpMptcp":true,"penetrate":false,"domainStrategy":"AsIs","tcpMaxSeg":1440,"dialerProxy":"","tcpKeepAliveInterval":45,"tcpKeepAliveIdle":45,"tcpUserTimeout":10000,"tcpcongestion":"bbr","V6Only":false,"tcpWindowClamp":600,"interface":"","trustedXForwardedFor":[],"addressPortStrategy":"none","customSockopt":[]}}','in-0-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"]}');
+INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${inbound_prefix} WebSocket',1,0,'',${ws_port},'vless','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"ws","wsSettings":{"acceptProxyProtocol":false,"path":"/${ws_port}/${ws_path}","host":"","headers":{},"heartbeatPeriod":0},"security":"none","externalProxy":[{"forceTls":"tls","dest":"${domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${ws_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
+INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${inbound_prefix} Trojan',1,0,'',${trojan_port},'trojan','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"grpc","grpcSettings":{"serviceName":"/${trojan_port}/${trojan_path}","authority":"${domain}","multiMode":false},"security":"none","externalProxy":[{"forceTls":"tls","dest":"${domain}","port":${https_port},"remark":"","sni":"","alpn":[]}]}','in-${trojan_port}-tcp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
+INSERT INTO inbounds(user_id,up,down,total,remark,enable,expiry_time,listen,port,protocol,settings,stream_settings,tag,sniffing) VALUES (1,0,0,0,'${inbound_prefix} Hysteria2',1,0,'',${https_port},'hysteria','{"clients":[],"decryption":"none","encryption":"none"}','{"network":"hysteria","hysteriaSettings":{"version":2,"udpIdleTimeout":60},"security":"tls","tlsSettings":{"serverName":"${domain}","minVersion":"1.2","maxVersion":"1.3","cipherSuites":"","rejectUnknownSni":false,"disableSystemRoot":false,"enableSessionResumption":false,"certificates":[{"certificateFile":"${cert_path}","keyFile":"${cert_key_path}","oneTimeLoading":false,"usage":"encipherment","buildChain":false}],"alpn":["h3"],"echServerKeys":"${ech_server}","settings":{"fingerprint":"firefox","echConfigList":"${ech_config}","pinnedPeerCertSha256":[]}},"finalmask":{"udp":[{"type":"salamander","settings":{"password":"${finalmask}"}}]}}','in-${https_port}-udp','{"enabled":true,"destOverride":["tls","http","quic","fakedns"],"routeOnly":true}');
 EOF
+
+  token=$(/usr/local/x-ui/x-ui setting -getApiToken | awk '{print $2}')
+fi
+
   /usr/local/x-ui/x-ui setting -username "$username" -password "$password" -port "$panel_port" -webBasePath "$panel_path"
   x-ui start
+}
+
+enable_bbr() {
+  if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]] && [[ $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
+    ok "BBR is already enabled!"
+    return 0
+  fi
+  if [ -d "/etc/sysctl.d/" ]; then
+    {
+      echo "#$(sysctl -n net.core.default_qdisc):$(sysctl -n net.ipv4.tcp_congestion_control)"
+      echo "net.core.default_qdisc = fq"
+      echo "net.ipv4.tcp_congestion_control = bbr"
+    } > "/etc/sysctl.d/99-bbr-x-ui.conf"
+    if [ -f "/etc/sysctl.conf" ]; then
+      sed -i 's/^net.core.default_qdisc/# &/' /etc/sysctl.conf
+      sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
+    fi
+    sysctl --system
+  else
+    sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+    sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+    echo "net.core.default_qdisc=fq" | tee -a /etc/sysctl.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" | tee -a /etc/sysctl.conf
+    sysctl -p
+  fi
+  if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
+    ok "BBR has been enabled successfully."
+  else
+    error "Failed to enable BBR. Please check your system configuration."
+  fi
+}
+
+iplimit_remove_conflicts() {
+  local jail_files=(
+    /etc/fail2ban/jail.conf
+    /etc/fail2ban/jail.local
+  )
+
+  for file in "${jail_files[@]}"; do
+    if test -f "${file}" && grep -qw '3x-ipl' ${file}; then
+      sed -i "/\[3x-ipl\]/,/^$/d" ${file}
+      warn "Removing conflicts of [3x-ipl] in jail (${file})!"
+    fi
+  done
+}
+
+create_iplimit_jails() {
+  local bantime="${1:-30}"
+
+  sed -i 's/#allowipv6 = auto/allowipv6 = auto/g' /etc/fail2ban/fail2ban.conf
+
+  if [[ "${release}" == "debian" && ${os_version} -ge 12 ]]; then
+    sed -i '0,/action =/s/backend = auto/backend = systemd/' /etc/fail2ban/jail.conf
+  fi
+
+  cat << EOF > /etc/fail2ban/jail.d/3x-ipl.conf
+[3x-ipl]
+enabled=true
+backend=auto
+filter=3x-ipl
+action=3x-ipl
+logpath=${iplimit_log_path}
+maxretry=1
+findtime=32
+bantime=${bantime}m
+EOF
+
+  cat << EOF > /etc/fail2ban/filter.d/3x-ipl.conf
+[Definition]
+datepattern = ^%%Y/%%m/%%d %%H:%%M:%%S
+failregex   = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*Disconnecting OLD IP\s*=\s*<ADDR>\s*\|\|\s*Timestamp\s*=\s*\d+
+ignoreregex =
+EOF
+
+  local ssh_ports
+  ssh_ports=$(grep -oP '^[[:space:]]*Port[[:space:]]+\K[0-9]+' /etc/ssh/sshd_config 2>/dev/null | paste -sd, -)
+  [[ -z "${ssh_ports}" ]] && ssh_ports="22"
+  local panel_port
+  panel_port=$(${xui_folder}/x-ui setting -show true 2>/dev/null | grep -Eo 'port: .+' | awk '{print $2}')
+  local exempt_ports="${ssh_ports}"
+  [[ -n "${panel_port}" ]] && exempt_ports="${exempt_ports},${panel_port}"
+
+  cat << EOF > /etc/fail2ban/action.d/3x-ipl.conf
+[INCLUDES]
+before = iptables-allports.conf
+
+[Definition]
+actionstart = <iptables> -N f2b-<name>
+              <iptables> -A f2b-<name> -j <returntype>
+              <iptables> -I <chain> -p <protocol> -j f2b-<name>
+
+actionstop = <iptables> -D <chain> -p <protocol> -j f2b-<name>
+             <actionflush>
+             <iptables> -X f2b-<name>
+
+actioncheck = <iptables> -n -L <chain> | grep -q 'f2b-<name>[ \t]'
+
+actionban = <iptables> -I f2b-<name> 1 -s <ip> -p <protocol> -m multiport ! --dports <exemptports> -j <blocktype>
+            echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [Email] = <F-USER> [IP] = <ip> banned for <bantime> seconds." >> ${iplimit_banned_log_path}
+
+actionunban = <iptables> -D f2b-<name> -s <ip> -p <protocol> -m multiport ! --dports <exemptports> -j <blocktype>
+              echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [Email] = <F-USER> [IP] = <ip> unbanned." >> ${iplimit_banned_log_path}
+
+[Init]
+name = default
+protocol = tcp
+chain = INPUT
+exemptports = ${exempt_ports}
+EOF
+  ok "Ip Limit jail files created with a bantime of ${bantime} minutes."
+}
+
+install_iplimit() {
+  if ! command -v fail2ban-client &> /dev/null; then
+    info "Fail2ban is not installed. Installing now...!"
+
+    case "${release}" in
+      ubuntu)
+        apt-get update
+        if [[ "${os_version}" -ge 24 ]]; then
+            apt-get install python3-pip -y
+            python3 -m pip install pyasynchat --break-system-packages
+        fi
+        apt-get install fail2ban nftables -y
+        ;;
+      debian)
+        apt-get update
+        if [ "$os_version" -ge 12 ]; then
+            apt-get install -y python3-systemd
+        fi
+        apt-get install -y fail2ban nftables
+        ;;
+      armbian)
+        apt-get update && apt-get install fail2ban nftables -y
+        ;;
+      fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
+        dnf -y update && dnf -y install fail2ban nftables
+        ;;
+      centos)
+        if [[ "${VERSION_ID}" =~ ^7 ]]; then
+            yum update -y && yum install epel-release -y
+            yum -y install fail2ban nftables
+        else
+            dnf -y update && dnf -y install fail2ban nftables
+        fi
+        ;;
+      arch | manjaro | parch)
+        pacman -Syu --noconfirm fail2ban nftables
+        ;;
+      alpine)
+        apk add fail2ban nftables
+        ;;
+      *)
+        error "Unsupported operating system. Please check the script and install the necessary packages manually."
+        exit 1
+        ;;
+    esac
+
+    if ! command -v fail2ban-client &> /dev/null; then
+      error "Fail2ban installation failed."
+      exit 1
+    fi
+
+    ok "Fail2ban installed successfully!"
+  else
+    warn "Fail2ban is already installed."
+  fi
+
+  ok "Configuring IP Limit..."
+
+  iplimit_remove_conflicts
+
+  if ! test -f "${iplimit_banned_log_path}"; then
+    touch ${iplimit_banned_log_path}
+  fi
+
+  if ! test -f "${iplimit_log_path}"; then
+    touch ${iplimit_log_path}
+  fi
+
+  create_iplimit_jails
+
+  if [[ $release == "alpine" ]]; then
+    if [[ $(rc-service fail2ban status | grep -F 'status: started' -c) == 0 ]]; then
+      rc-service fail2ban start
+    else
+      rc-service fail2ban restart
+    fi
+    rc-update add fail2ban
+  else
+    if ! systemctl is-active --quiet fail2ban; then
+      systemctl start fail2ban
+    else
+      systemctl restart fail2ban
+    fi
+    systemctl enable fail2ban
+  fi
+
+  ok "IP Limit installed and configured successfully!"
 }
 
 ARCH=$(uname -m)
@@ -440,6 +665,7 @@ XUIDB="/etc/x-ui/x-ui.db"
 XRAY_BIN="/usr/local/x-ui/bin/xray-linux-${XUI_ARCH}"
 http_port=80
 https_port=443
+
 USED_PORTS["$http_port"]=1
 USED_PORTS["$https_port"]=1
 
@@ -447,43 +673,65 @@ username=$(read_value "Enter username" "$(generate_unique_string 12)" "$DEFAULT"
 password=$(read_value "Enter password" "$(generate_unique_string 12)" "$DEFAULT")
 
 panel_port=$(generate_unique_port)
-sub_port=$(generate_unique_port)
-ws_port=$(generate_unique_port)
-trojan_port=$(generate_unique_port)
+if $MASTER; then
+  sub_port=$(generate_unique_port)
+  decoy_port=$https_port
+fi
 
-reality_port=$(read_port_or_default 8443 "Enter reality port" "$DEFAULT")
-decoy_port=$(read_port_or_default 7443 "Enter decoy port" "$DEFAULT")
+if $SLAVE; then
+  ws_port=$(generate_unique_port)
+  trojan_port=$(generate_unique_port)
+  reality_port=$(read_port_or_default 8443 "Enter reality port" "$DEFAULT")
+  decoy_port=$(read_port_or_default 7443 "Enter decoy port" "$DEFAULT")
+fi
+
 decoy_folder=$(read_value "Enter decoy folder" "/var/www/html" "$DEFAULT")
 
 panel_path=$(read_value "Enter panel path" "$(generate_unique_string 16)" "$DEFAULT")
-sub_path=$(read_value "Enter sub path" "$(generate_unique_string 10)" "$DEFAULT")
-json_path=$(read_value "Enter sub json path" "$(generate_unique_string 10)" "$DEFAULT")
-clash_path=$(read_value "Enter clash path" "$(generate_unique_string 10)" "$DEFAULT")
-xhttp_path=$(read_value "Enter xhttp path" "$(generate_unique_string 16)" "$DEFAULT")
-ws_path=$(read_value "Enter ws path" "$(generate_unique_string 16)" "$DEFAULT")
-trojan_path=$(read_value "Enter trojan path" "$(generate_unique_string 16)" "$DEFAULT")
 
-domain=$(read_value "Enter main domain")
-reality_domain=$(read_value "Enter reality domain")
-reality_mask=$(read_reality_mask)
-if [[ -z "$reality_mask" ]]; then
-  info "Reality will use stub/placeholder mode (no external masquerade domain)."
-  reality_decoy_port=$(read_port_or_default 9443 "Enter reality decoy port" "$DEFAULT")
-else
-  info "Reality masquerade domain set to: $reality_mask"
+if $MASTER; then
+  sub_path=$(read_value "Enter sub path" "$(generate_unique_string 10)" "$DEFAULT")
+  json_path=$(read_value "Enter sub json path" "$(generate_unique_string 10)" "$DEFAULT")
+  clash_path=$(read_value "Enter clash path" "$(generate_unique_string 10)" "$DEFAULT")
 fi
 
-ssl_cert_issue "$domain" "$reality_domain"
+if $SLAVE; then
+  xhttp_path=$(read_value "Enter xhttp path" "$(generate_unique_string 16)" "$DEFAULT")
+  ws_path=$(read_value "Enter ws path" "$(generate_unique_string 16)" "$DEFAULT")
+  trojan_path=$(read_value "Enter trojan path" "$(generate_unique_string 16)" "$DEFAULT")
+  inbound_prefix=$(read_value "Enter prefix for inbounds" "{flag}" "$DEFAULT")
+fi
+
+domain=$(read_value "Enter main domain")
+
+USED_PORTS["$http_port"]=0
+USED_PORTS["$https_port"]=0
+
+if $SLAVE; then
+  reality_domain=$(read_value "Enter reality domain")
+  reality_mask=$(read_reality_mask)
+  if [[ -z "$reality_mask" ]]; then
+    info "Reality will use stub/placeholder mode (no external masquerade domain)."
+    reality_decoy_port=$(read_port_or_default 9443 "Enter reality decoy port" "$DEFAULT")
+  else
+    info "Reality masquerade domain set to: $reality_mask"
+  fi
+  ssl_cert_issue "$domain" "$reality_domain"
+else
+  ssl_cert_issue "$domain"
+fi
 
 cert_path="/root/cert/${domain}/fullchain.pem"
 cert_key_path="/root/cert/${domain}/privkey.pem"
 
-DEFAULT=false
+USED_PORTS["$http_port"]=1
+USED_PORTS["$https_port"]=1
 
-reality_cert_path="$cert_path"
-reality_cert_key_path="$cert_key_path"
+if $SLAVE; then
+  reality_cert_path="$cert_path"
+  reality_cert_key_path="$cert_key_path"
+fi
 
-apt update && apt upgrade -y
 apt -y install ufw jq wget nginx-full sqlite3 curl
 
 systemctl stop nginx
@@ -493,14 +741,15 @@ rm -rf /etc/nginx/sites-available/*
 rm -rf /etc/nginx/stream-enabled/*
 rm -f /etc/nginx/snippets/includes.conf
 
-mkdir -p /etc/nginx/stream-enabled
+if $SLAVE; then
+  mkdir -p /etc/nginx/stream-enabled
 
-cat > "/etc/nginx/stream-enabled/stream.conf" << EOF
+  cat > "/etc/nginx/stream-enabled/stream.conf" << EOF
 map \$ssl_preread_server_name \$sni_name {
   hostnames;
   ${reality_domain}          xray;
   ${domain}                  www;
-  default                    xray;
+  default                    www;
 }
 
 upstream xray {
@@ -521,16 +770,24 @@ server {
 
 EOF
 
-grep -xqFR "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx/* || echo "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
-grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
-grep -xqFR "load_module modules/ngx_stream_geoip2_module.so;" /etc/nginx* || sed -i '2s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_geoip2_module.so; /' /etc/nginx/nginx.conf
-grep -xqFR "worker_rlimit_nofile 16384;" /etc/nginx/* || echo "worker_rlimit_nofile 16384;" >> /etc/nginx/nginx.conf
-sed -i "/worker_connections/c\worker_connections 4096;" /etc/nginx/nginx.conf
+  grep -xqFR "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx/* || echo "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
+  grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
+  grep -xqFR "load_module modules/ngx_stream_geoip2_module.so;" /etc/nginx* || sed -i '2s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_geoip2_module.so; /' /etc/nginx/nginx.conf
+  grep -xqFR "worker_rlimit_nofile 16384;" /etc/nginx/* || echo "worker_rlimit_nofile 16384;" >> /etc/nginx/nginx.conf
+  sed -i "/worker_connections/c\worker_connections 4096;" /etc/nginx/nginx.conf
+fi
+
+protocols="ssl http2"
+domains="$domain"
+if $SLAVE; then
+  protocols="$protocols proxy_protocol"
+  domains="$domains $reality_domain"
+fi
 
 cat > "/etc/nginx/sites-available/${http_port}.conf" << EOF
 server {
   listen ${http_port};
-  server_name $domain $reality_domain;
+  server_name $domains;
   return 301 https://\$host\$request_uri;
 }
 
@@ -539,7 +796,7 @@ EOF
 cat > "/etc/nginx/sites-available/${domain}" << EOF
 server {
   server_tokens off;
-  listen $decoy_port ssl http2 proxy_protocol;
+  listen $decoy_port ${protocols};
   server_name $domain;
   index index.html index.htm index.php index.nginx-debian.html;
   root $decoy_folder/;
@@ -575,6 +832,10 @@ server {
     proxy_pass http://127.0.0.1:${panel_port};
   }
 
+EOF
+
+if $MASTER; then
+  cat >> "/etc/nginx/sites-available/${domain}" << EOF
   location ~* ^/(${sub_path}|${json_path}|${clash_path}) {
     if (\$hack = 1) {return 404;}
     proxy_http_version 1.1;
@@ -594,6 +855,11 @@ server {
     proxy_pass http://127.0.0.1:${sub_port};
   }
 
+EOF
+fi
+
+if $SLAVE; then
+  cat >> "/etc/nginx/sites-available/${domain}" << EOF
   location /${xhttp_path} {
     grpc_buffer_size 16k;
     grpc_socket_keepalive on;
@@ -638,15 +904,18 @@ server {
     }
   }
 
+EOF
+fi
+
+cat >> "/etc/nginx/sites-available/${domain}" << EOF
   location / { try_files \$uri \$uri/ =404; }
 }
-
 EOF
 
 ln -s "/etc/nginx/sites-available/${domain}" "/etc/nginx/sites-enabled/" 2>/dev/null
 ln -s "/etc/nginx/sites-available/${http_port}.conf" "/etc/nginx/sites-enabled/" 2>/dev/null
 
-if [[ -z "$reality_mask" ]]; then
+if $SLAVE && [[ -z "$reality_mask" ]]; then
   cat > "/etc/nginx/sites-available/${reality_domain}" << EOF
 server {
   server_tokens off;
@@ -671,38 +940,45 @@ server {
 }
 
 EOF
+
   ln -s "/etc/nginx/sites-available/${reality_domain}" "/etc/nginx/sites-enabled/" 2>/dev/null
 fi
 
 if ! nginx -t >/dev/null 2>&1; then
   error "nginx config is not ok!" && exit 1
 else
-  www=$(curl -s "https://api.github.com/repos/Xisray/reality-cloaks/contents/" | jq -r '.[] | select(.type == "dir" and .name != "assets") | .name' | shuf -n 1)
   rm -rf "$decoy_folder"
-  curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/fetch-github-path.sh | bash -s -- "Xisray" "reality-cloaks" "build" "$www" "$decoy_folder" >/dev/null
+  if [[ -z $WWW ]]; then
+    WWW=$(curl -s "https://api.github.com/repos/Xisray/reality-cloaks/contents/" | jq -r '.[] | select(.type == "dir" and .name != "assets") | .name' | shuf -n 1)
+  fi
+  curl -s https://raw.githubusercontent.com/Xisray/vps-toolkit/refs/heads/main/fetch-github-path.sh | bash -s -- "Xisray" "reality-cloaks" "build" "$WWW" "$decoy_folder" >/dev/null
 fi
 
 install_3xui
 setup_3xui
+install_iplimit
+enable_bbr
 
-INSTALL_PATH="/usr/local/bin/xui-rotator"
-TMP_PATH="${INSTALL_PATH}.new"
-REPO_URL="https://raw.githubusercontent.com/Xisray/vps-toolkit/main/xui-rotator.sh"
+if $SLAVE; then
+  INSTALL_PATH="/usr/local/bin/xui-rotator"
+  TMP_PATH="${INSTALL_PATH}.new"
+  REPO_URL="https://raw.githubusercontent.com/Xisray/vps-toolkit/main/xui-rotator.sh"
 
-curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
-chmod +x "$INSTALL_PATH"
+  curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
+  chmod +x "$INSTALL_PATH"
 
-ARGS="--shortids --ws --trojan --xhttp --hysteria"
+  ARGS="--shortids --ws --trojan --xhttp --hysteria"
 
-if [[ -n "$reality_mask" ]]; then
-  ARGS="$ARGS --sni"
-fi
+  if [[ -n "$reality_mask" ]]; then
+    ARGS="$ARGS --sni"
+  fi
 
-CRON_JOB="0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH && $INSTALL_PATH $ARGS >/dev/null 2>&1"
-(
+  CRON_JOB="0 4 * * * curl -fsSL $REPO_URL -o $TMP_PATH && chmod +x $TMP_PATH && mv $TMP_PATH $INSTALL_PATH && $INSTALL_PATH $ARGS >/dev/null 2>&1"
+  (
     crontab -l 2>/dev/null | grep -Fv "$CRON_JOB"
     echo "$CRON_JOB"
-) | crontab -
+  ) | crontab -
+fi
 
 ufw allow "$(get_ssh_config 'Port')/tcp" >/dev/null
 ufw allow ${http_port}/tcp >/dev/null
@@ -719,6 +995,9 @@ echo
 echo -e "${GREEN}URL:${NC}      https://${domain}/${panel_path}/"
 echo -e "${GREEN}Username:${NC} ${username}"
 echo -e "${GREEN}Password:${NC} ${password}"
+if $SLAVE; then
+  echo -e "${GREEN}Token:${NC}    ${token}"
+fi
 echo
 echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
 echo -e "${YELLOW}⚠  Please save these credentials in a safe place!${NC}"
