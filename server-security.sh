@@ -222,7 +222,7 @@ function change_ssh_port() {
 }
 
 apt update && apt upgrade -y
-apt -y install ufw sudo
+apt -y install ufw sudo cron
 sed -i '/^Include/d' "/etc/ssh/sshd_config"
 set_ssh_config "PubkeyAuthentication" "yes"
 set_ssh_config "PasswordAuthentication" "no"
