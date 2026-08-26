@@ -259,6 +259,7 @@ ssl_cert_issue() {
 
   if [[ ${cert_exists} -eq 0 ]]; then
     local web_port=$(read_port_or_default 80 "Enter HTTP challenge port (acme standalone)")
+    ufw allow ${web_port}/tcp >/dev/null
 
     local max_attempts=3
     local attempt=0
@@ -294,6 +295,8 @@ ssl_cert_issue() {
       exit 1
     fi
   fi
+
+  ufw delete allow ${web_port}/tcp >/dev/null
 
   local installOutput=$(~/.acme.sh/acme.sh --installcert "${domain_flags[@]}" --key-file /root/cert/${primary_domain}/privkey.pem --fullchain-file /root/cert/${primary_domain}/fullchain.pem 2>&1)
   local installRc=$?
