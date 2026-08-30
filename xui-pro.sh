@@ -970,7 +970,7 @@ if $SLAVE; then
   curl -fsSL "$REPO_URL" -o "$INSTALL_PATH"
   chmod +x "$INSTALL_PATH"
 
-  ARGS="--shortids --ws --trojan --xhttp --hysteria"
+  ARGS="--shortids --xhttp --hysteria"
 
   if [[ -n "$reality_mask" ]]; then
     ARGS="$ARGS --sni"
